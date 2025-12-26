@@ -1,0 +1,63 @@
+@import "tailwindcss";
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* Internet Explorer / Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  width: 0 !important;        /* Chrome / Safari / Edge */
+  height: 0 !important;
+  display: none !important;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2 }
+  50% { opacity: 1 }
+}
+.animate-twinkle {
+  animation: twinkle 3s infinite ease-in-out;
+}
+
+@keyframes clouds {
+  from { transform: translateX(0%) }
+  to { transform: translateX(0%) }
+}
+.animate-clouds {
+  animation: clouds 20s linear infinite alternate;
+}
+
+.rain { 
+   animation: rain 0.6s linear infinite; 
+  }
+   @keyframes rain {
+  from { background-position: 0 0 }
+  to { background-position: 0 200px }
+}
+
+
+.snow-effect {
+  animation: snow 10s linear infinite;
+}
+@keyframes snow {
+  from { background-position: 0 0 }
+  to { background-position: 0 200px }
+}
+
+.lightning-effect {
+  background: white;
+  opacity: 0;
+  animation: lightning 6s infinite;
+}
+@keyframes lightning {
+  0%, 93%, 100% { opacity: 0 }
+  96% { opacity: 0.8 }
+}
+.lightning{
+  animation: lightning 6s infinite;
+}
