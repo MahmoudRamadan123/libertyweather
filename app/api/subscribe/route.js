@@ -34,7 +34,7 @@ async function sendResendEmail(to, subject, html) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Weather Alerts <alerts@libertyhail.com>',
+      from: 'Weather Alerts <alerts@libertyweather.com>',
       to,
       subject,
       html,
@@ -46,8 +46,7 @@ async function sendResendEmail(to, subject, html) {
 
 // Welcome email template
 function getWelcomeEmailTemplate(email, location, unsubscribeToken) {
-  const unsubscribeUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/unsubscribe?token=${unsubscribeToken}&email=${encodeURIComponent(email)}`;
-  
+ const unsubscribeUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/unsubscribe?token=${unsubscribeToken}&email=${encodeURIComponent(email)}`;
   return `
     <!DOCTYPE html>
     <html>

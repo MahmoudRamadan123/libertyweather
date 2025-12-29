@@ -1,30 +1,65 @@
 'use client';
 
-import { Suspense, useEffect, useState, useMemo } from 'react';
+import { Suspense, useEffect, useState, useMemo, useCallback } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { useWeather } from './hooks/useWeather';
 import { useHolidays } from './hooks/useHolidays';
 import useSkyTime from './hooks/useSkyTime';
 import { useUSSunTimes } from './hooks/useUSSunTimes';
 
-import Header from './components/Header';
-import Cards from './components/Cards';
-import Footer from './components/Footer';
-import SearchModal from './components/SearchModal';
-import Mascot from './components/Mascot';
-import HourlyForecast from './components/HourlyForecast';
-import CelestialBody from './components/CelestialBody';
+
 import dynamic from 'next/dynamic';
 
-// Dynamically import WeatherAlert with loading fallback
-const WeatherAlert = dynamic(() => import('./components/WeatherAlert'), {
+const Header = dynamic(() => import("./components/Header"), {
   ssr: false,
-  loading: () => (
-    <div className="p-3 rounded-full bg-gray-700 animate-pulse">
-      <div className="h-6 w-6"></div>
-    </div>
-  )
 });
+
+const Cards = dynamic(() => import("./components/Cards"), {
+  ssr: false,
+});
+
+const Footer = dynamic(() => import("./components/Footer"), {
+  ssr: false,
+});
+
+const SearchModal = dynamic(() => import("./components/SearchModal"), {
+  ssr: false,
+});
+
+const Mascot = dynamic(() => import("./components/Mascot"), {
+  ssr: false,
+});
+
+const HourlyForecast = dynamic(() => import("./components/HourlyForecast"), {
+  ssr: false,
+});
+
+const CelestialBody = dynamic(() => import("./components/CelestialBody"), {
+  ssr: false,
+});
+
+const WeatherAlert = dynamic(() => import("./components/WeatherAlert"), {
+  ssr: false,
+  loading: () => null,
+});
+
+
+// Debounce hook
+const useDebounce = (value, delay) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [value, delay]);
+  
+  return debouncedValue;
+};
 
 export default function Page() {
   const [cityName, setCityName] = useState('New York');
@@ -35,6 +70,7 @@ export default function Page() {
   const [colorBg, setColorBg] = useState('rgb(30 33 26)');
   const [alertOpen, setAlertOpen] = useState(false);
   const [alerts, setAlerts] = useState([]);
+  const [loadingAll, setLoadingAll] = useState(false);
   const [loadedSections, setLoadedSections] = useState({
     weather: false,
     sunTimes: false,
@@ -42,6 +78,9 @@ export default function Page() {
     alerts: false
   });
 
+  // Debounce city changes to prevent rapid API calls
+  const debouncedCityName = useDebounce(cityName, 500);
+  
   // Get current time and sky gradient (always available)
   const { currentTime, timeOfDay, skyGradient } = useSkyTime();
   
@@ -51,11 +90,10 @@ export default function Page() {
     latAndLon, 
     summary, 
     animationType, 
-    
     handleLocationSearch,
     isLoading: weatherLoading 
   } = useWeather({ 
-    location: cityName,
+    location: debouncedCityName,
     setLocation: setCityName
   });
 
@@ -64,9 +102,8 @@ export default function Page() {
     sunrise, 
     sunset, 
     isLoading: sunTimesLoading,
-    error: sunTimesError,
-
-  } = useUSSunTimes(cityName);
+    error: sunTimesError
+  } = useUSSunTimes(debouncedCityName);
 
   // Load holidays with loading state
   const { 
@@ -84,6 +121,60 @@ export default function Page() {
     error: sunTimesError
   }), [sunrise, sunset, sunTimesLoading, sunTimesError]);
 
+  // Memoize display values
+  const memoizedDisplayValues = useMemo(() => ({
+    temperature: weatherData?.temperature || '—',
+    condition: weatherData?.condition || animationType?.toUpperCase() || '—',
+    summary: summary || (
+      timeOfDay === 'night' 
+        ? 'A peaceful night with clear skies' 
+        : "It's sunny with a gentle breeze — perfect weather!"
+    )
+  }), [weatherData, animationType, summary, timeOfDay]);
+
+  // Load all data in parallel
+  useEffect(() => {
+    if (!debouncedCityName) return;
+    
+    setLoadingAll(true);
+    
+    // Track loading states
+    const loadPromises = [
+      "/mascots/all/",
+      "/api/Boston/",
+      "/api/Chicago/",
+      "/api/Los Angeles/",
+      "/api/New York/",
+      "/api/San Francisco/",
+      "/api/Las Vegas/",
+      "/api/Philadelphia/",
+      "/api/sehel/",
+      "/api/suburub/"
+    ];
+    
+    // Weather data will load via its own effect
+     loadPromises.push(new Promise((resolve) => {
+      const checkWeatherLoaded = () => {
+        if (!weatherLoading) {
+          resolve();
+        }
+        else {
+          setTimeout(checkWeatherLoaded, 100);
+        }
+      };
+      checkWeatherLoaded();
+    }));
+    // We'll track it separately
+    setLoadedSections(prev => ({ ...prev, weather: false }));
+    
+    // Set up loading timeout to show something even if some APIs fail
+    const loadingTimeout = setTimeout(() => {
+      setLoadingAll(false);
+    }, 5000); // Max 5 seconds loading time
+    
+    return () => clearTimeout(loadingTimeout);
+  }, [debouncedCityName]);
+
   // Update loaded sections as data comes in
   useEffect(() => {
     if (!weatherLoading && weatherData) {
@@ -100,6 +191,8 @@ export default function Page() {
   useEffect(() => {
     if (!holidaysLoading) {
       setLoadedSections(prev => ({ ...prev, holidays: true }));
+      // Holidays are not critical, so we don't wait for them
+      setLoadingAll(prev => prev && false);
     }
   }, [holidaysLoading]);
 
@@ -123,7 +216,6 @@ export default function Page() {
 
   // Fetch NWS Alerts (loads independently)
   useEffect(() => {
-    console.log('Latitude and Longitude changed:', latAndLon);
     if (!latAndLon?.lat || !latAndLon?.lon) return;
     
     let mounted = true;
@@ -132,14 +224,14 @@ export default function Page() {
       try {
         const lat = latAndLon.lat;
         const lon = latAndLon.lon;
-        console.log('Fetching alerts for:', lat, lon);
         const res = await fetch(`https://api.weather.gov/alerts/active?point=${lat},${lon}`, {
-          signal: AbortSignal.timeout(5000) // 5 second timeout
+          signal: AbortSignal.timeout(3000) // Reduced to 3 seconds
         }).catch(() => null);
+        
         if (!res?.ok) return;
         
         const data = await res.json();
-         if (mounted && data?.features?.length) {
+        if (mounted && data?.features?.length) {
           const activeAlerts = data.features.map((f) => ({
             id: f.id,
             event: f.properties.event,
@@ -150,8 +242,7 @@ export default function Page() {
             end: f.properties.expires,
           }));
           setAlerts(activeAlerts);
-        }
-        else{
+        } else {
           setAlerts([]);
         }
       } catch (err) {
@@ -171,8 +262,8 @@ export default function Page() {
     };
   }, [latAndLon?.lat, latAndLon?.lon]);
 
-  // Handle city change from search - this is now the only place we update cityName
-  const handleCityChange = (city) => {
+  // Handle city change from search
+  const handleCityChange = useCallback((city) => {
     setCityName(city);
     setMascotCity(city);
     // Reset loading states
@@ -182,34 +273,53 @@ export default function Page() {
       holidays: false,
       alerts: false
     });
-  };
-
+  }, []);
 
   // Determine if all critical sections are loaded
-  const allSectionsLoaded = useMemo(() => {
+  const criticalSectionsLoaded = useMemo(() => {
     return loadedSections.weather && loadedSections.sunTimes;
   }, [loadedSections]);
 
-  // Get display values with fallbacks
-  const displayTemperature = weatherData?.temperature || '—';
-  const displayCondition = weatherData?.condition || animationType?.toUpperCase() || '—';
-  const displaySummary = summary || (
-    timeOfDay === 'night' 
-      ? 'A peaceful night with clear skies' 
-      : "It's sunny with a gentle breeze — perfect weather!"
-  );
-  if (!allSectionsLoaded) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 flex flex-col items-center justify-center p-4">
-        <div className="text-white text-lg animate-pulse">Loading weather data...</div>
-      </div>
-    );
-  }
+  // Performance monitoring
+  useEffect(() => {
+    performance.mark('page-load-start');
+    
+    return () => {
+      performance.mark('page-load-end');
+      performance.measure('page-load', 'page-load-start', 'page-load-end');
+    };
+  }, []);
+
+
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden" style={{ background: colorBg }}>
+      {/* Critical CSS */}
+      <style jsx global>{`
+        .skeleton {
+          background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+          background-size: 200% 100%;
+          animation: loading 1.5s infinite;
+          border-radius: 0.375rem;
+        }
+        
+        @keyframes loading {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        
+        .fade-in {
+          animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
       {/* ================= HERO ================= */}
-      <section className="relative min-h-screen flex flex-col" style={{ background: skyGradient }}>
+      <section className="relative min-h-screen flex flex-col fade-in" style={{ background: skyGradient }}>
         <Header
           setSearchOpen={setSearchOpen}
           isHolidayToday={isHolidayToday}
@@ -234,10 +344,10 @@ export default function Page() {
                 opacity: loadedSections.weather ? 1 : 0.6
               }}
             >
-              {displayTemperature}°C | {displayCondition}
+              {memoizedDisplayValues.temperature}°C | {memoizedDisplayValues.condition}
             </h1>
 
-
+           
           </div>
 
           <div className="z-10 w-full">
@@ -247,7 +357,7 @@ export default function Page() {
               animationType={animationType}
               cityName={MascotCity}
               timeOfDay={timeOfDay}
-              isLoading={!allSectionsLoaded}
+              isLoading={!criticalSectionsLoaded}
             />
           </div>
 
@@ -260,14 +370,14 @@ export default function Page() {
           {/* Quote */}
           <div className="absolute bottom-0 z-20 px-4 w-full">
             <div
-              className="mx-auto max-w-[520px] px-4 py-3 shadow-md transition-opacity duration-300"
+              className="mx-auto max-w-[520px] px-4 py-3 shadow-md transition-opacity duration-300 fade-in"
               style={{
                 background: timeOfDay === 'night' ? 'rgb(150,150,180)' : 'rgb(198,184,154)',
                 opacity: loadedSections.weather ? 1 : 0.7
               }}
             >
               <p className="text-center italic text-sm text-black">
-                "{displaySummary}"
+                "{memoizedDisplayValues.summary}"
               </p>
             </div>
           </div>
@@ -277,28 +387,26 @@ export default function Page() {
         <div className="px-2 py-0 lg:pt-7 relative z-[10]" style={{ background: colorBg }}>
           <Suspense fallback={
             <div className="h-24 flex items-center justify-center">
-              <div className="text-white/60">Loading forecast...</div>
+              <div className="skeleton h-20 w-full max-w-4xl"></div>
             </div>
           }>
             <HourlyForecast cityName={cityName} />
           </Suspense>
         </div>
 
-        {/* Scroll indicator - only show when main content is loaded */}
-        {allSectionsLoaded && (
-          <div className="flex flex-col items-center py-3 text-xs text-white/60 transition-opacity duration-300" style={{ background: colorBg }}>
+        {/* Scroll indicator - show when critical content is loaded */}
+        {criticalSectionsLoaded && (
+          <div className="flex flex-col items-center py-3 text-xs text-white/60 transition-opacity duration-300 fade-in" style={{ background: colorBg }}>
             <span>SCROLL FOR MORE</span>
             <span className="text-lg">⌄</span>
           </div>
         )}
       </section>
 
-
-
       {/* Cards section - loads independently */}
       <Suspense fallback={
         <div className="h-64 flex items-center justify-center" style={{ background: colorBg }}>
-          <div className="text-white/60">Loading weather details...</div>
+          <div className="skeleton h-48 w-full max-w-6xl"></div>
         </div>
       }>
         <Cards colorBg={colorBg} />
@@ -323,15 +431,12 @@ export default function Page() {
         </Suspense>
       )}
 
-      {/* Search Modal */}
       <SearchModal
         searchOpen={searchOpen}
         setSearchOpen={setSearchOpen}
-        setCityName={handleCityChange} // Use the new handler
         handleLocationSearch={handleLocationSearch}
-        isHolidayToday={isHolidayToday}
+        setCityName={handleCityChange}
         setMascotCity={setMascotCity}
-        holidayColors={holidayColors}
       />
     </div>
   );

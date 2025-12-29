@@ -1,32 +1,90 @@
-import { useEffect, useState } from 'react';
+'use client';
 
-async function fetchSunTimes(lat, lon) {
+import { useEffect, useState, useCallback } from 'react';
+
+// Cache for sun times
+const sunTimesCache = new Map();
+const SUN_TIMES_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+
+// Fast calculation of sunrise/sunset (approximation)
+const calculateSunTime = (lat, date, isSunrise = true) => {
+  const now = new Date(date);
+  const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
+  
+  // Simplified calculation based on latitude and day of year
+  const latRad = lat * Math.PI / 180;
+  const declination = 23.44 * Math.PI / 180 * Math.sin(2 * Math.PI * (284 + dayOfYear) / 365);
+  
+  // Hour angle approximation
+  const hourAngle = Math.acos(-Math.tan(latRad) * Math.tan(declination));
+  
+  // Convert to hours
+  const hour = isSunrise 
+    ? 12 - hourAngle * 180 / (Math.PI * 15)
+    : 12 + hourAngle * 180 / (Math.PI * 15);
+  
+  now.setHours(Math.floor(hour), Math.round((hour % 1) * 60), 0, 0);
+  return now;
+};
+
+// Fast API endpoint for sun times
+const fetchSunTimesFromAPI = async (lat, lon) => {
   try {
-    const res = await fetch(`https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lon}&formatted=0`);
+    // Use a faster API with CORS support
+    const res = await fetch(`https://api.sunrisesunset.io/json?lat=${lat}&lng=${lon}&formatted=0`, {
+      signal: AbortSignal.timeout(2000) // 2 second timeout
+    });
+    
+    if (!res.ok) throw new Error('API failed');
+    
     const data = await res.json();
-    return {
-      sunrise: new Date(data.results.sunrise),
-      sunset: new Date(data.results.sunset),
-    };
+    if (data.status === 'OK') {
+      return {
+        sunrise: new Date(data.results.sunrise),
+        sunset: new Date(data.results.sunset)
+      };
+    }
   } catch (error) {
-    console.error('Error fetching sun times:', error);
-    // Fallback: calculate approximate sun times based on date
-    const now = new Date();
-    const sunrise = new Date(now);
-    sunrise.setHours(6, 30, 0, 0);
-    const sunset = new Date(now);
-    sunset.setHours(18, 30, 0, 0);
-    return { sunrise, sunset };
+    console.log('Sun times API failed, using calculation');
   }
-}
+  return null;
+};
 
 export function useUSSunTimes(cityName) {
   const [sunTimes, setSunTimes] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const fetchWithFallback = useCallback(async (lat, lon, cacheKey) => {
+    // Try API first
+    const apiResult = await fetchSunTimesFromAPI(lat, lon);
+    if (apiResult) {
+      return apiResult;
+    }
+    
+    // Fallback to calculation
+    const now = new Date();
+    const calculated = {
+      sunrise: calculateSunTime(lat, now, true),
+      sunset: calculateSunTime(lat, now, false)
+    };
+    
+    setError('Using approximate sun times');
+    return calculated;
+  }, []);
+
   useEffect(() => {
     if (!cityName) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Check cache first
+    const cacheKey = cityName.toLowerCase();
+    const cached = sunTimesCache.get(cacheKey);
+    
+    if (cached && (Date.now() - cached.timestamp) < SUN_TIMES_CACHE_DURATION) {
+      setSunTimes(cached.data);
       setIsLoading(false);
       return;
     }
@@ -39,14 +97,21 @@ export function useUSSunTimes(cityName) {
       setError(null);
 
       try {
-        // 1️⃣ Geocode
+        // Fast geocoding with OpenStreetMap
         const geoRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}`,
-          { signal: controller.signal }
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1&addressdetails=1`,
+          { 
+            signal: controller.signal,
+            headers: {
+              'Accept-Language': 'en',
+              'User-Agent': 'WeatherApp/1.0'
+            }
+          }
         );
-        const geo = await geoRes.json();
+        
         if (!isMounted) return;
         
+        const geo = await geoRes.json();
         if (!geo?.length) {
           setError('City not found');
           setIsLoading(false);
@@ -55,76 +120,36 @@ export function useUSSunTimes(cityName) {
         
         const { lat, lon } = geo[0];
         
-        // Try to get accurate sun times from sunrise-sunset API first
-        try {
-          const fetchedSunTimes = await fetchSunTimes(lat, lon);
-          if (isMounted) {
-            setSunTimes(fetchedSunTimes);
-            setIsLoading(false);
-          }
-          return;
-        } catch (sunError) {
-          console.log('Fallback to NWS API for sun times');
-        }
-
-        // Fallback: 2️⃣ NWS Point (if sunrise-sunset API fails)
-        try {
-          const pointRes = await fetch(
-            `https://api.weather.gov/points/${lat},${lon}`,
-            { 
-              headers: { 'User-Agent': 'LibertyHail (hani@libertyhail.com)' },
-              signal: controller.signal 
-            }
-          );
-          const point = await pointRes.json();
+        // Get sun times with fallback
+        const fetchedSunTimes = await fetchWithFallback(lat, lon, cacheKey);
+        
+        if (isMounted && fetchedSunTimes) {
+          // Cache the result
+          sunTimesCache.set(cacheKey, {
+            data: fetchedSunTimes,
+            timestamp: Date.now()
+          });
           
-          if (point?.properties?.forecast) {
-            // 3️⃣ Forecast (contains sunrise/sunset)
-            const forecastRes = await fetch(point.properties.forecast, {
-              headers: { 'User-Agent': 'LibertyHail (hani@libertyhail.com)' },
-              signal: controller.signal
-            });
-            const forecast = await forecastRes.json();
-            
-            const today = forecast.properties.periods.find((p) => p.isDaytime);
-            
-            // If NWS doesn't provide exact times, calculate approximate times
-            if (isMounted) {
-              const now = new Date();
-              const sunrise = today?.startTime ? new Date(today.startTime) : new Date(now);
-              const sunset = today?.endTime ? new Date(today.endTime) : new Date(now);
-              
-              // Adjust to approximate times if NWS doesn't provide exact
-              sunrise.setHours(6, 30, 0, 0);
-              sunset.setHours(18, 30, 0, 0);
-              
-              setSunTimes({ sunrise, sunset });
-            }
-          }
-        } catch (nwsError) {
-          // Final fallback: generic times
-          if (isMounted) {
-            const now = new Date();
-            const sunrise = new Date(now);
-            sunrise.setHours(6, 30, 0, 0);
-            const sunset = new Date(now);
-            sunset.setHours(18, 30, 0, 0);
-            setSunTimes({ sunrise, sunset });
-            setError('Using approximate sun times');
-          }
+          setSunTimes(fetchedSunTimes);
         }
       } catch (err) {
         if (isMounted && err.name !== 'AbortError') {
           console.error('Error in useUSSunTimes:', err);
-          setError('Failed to load sun times');
           
-          // Always provide some fallback times
+          // Ultimate fallback
           const now = new Date();
-          const sunrise = new Date(now);
-          sunrise.setHours(6, 30, 0, 0);
-          const sunset = new Date(now);
-          sunset.setHours(18, 30, 0, 0);
-          setSunTimes({ sunrise, sunset });
+          const fallback = {
+            sunrise: new Date(now.setHours(6, 30, 0, 0)),
+            sunset: new Date(now.setHours(18, 30, 0, 0))
+          };
+          
+          sunTimesCache.set(cacheKey, {
+            data: fallback,
+            timestamp: Date.now()
+          });
+          
+          setSunTimes(fallback);
+          setError('Using fallback times');
         }
       } finally {
         if (isMounted) {
@@ -133,22 +158,25 @@ export function useUSSunTimes(cityName) {
       }
     };
 
-    load();
+    // Small delay to avoid request waterfall
+    const timer = setTimeout(() => {
+      load();
+    }, 100);
 
     return () => {
       isMounted = false;
       controller.abort();
+      clearTimeout(timer);
     };
-  }, [cityName]);
+  }, [cityName, fetchWithFallback]);
 
-  // Always return an object with the expected structure
+  // Always return valid times
   const safeSunTimes = sunTimes || (() => {
     const now = new Date();
-    const sunrise = new Date(now);
-    sunrise.setHours(6, 30, 0, 0);
-    const sunset = new Date(now);
-    sunset.setHours(18, 30, 0, 0);
-    return { sunrise, sunset };
+    return {
+      sunrise: new Date(now.setHours(6, 30, 0, 0)),
+      sunset: new Date(now.setHours(18, 30, 0, 0))
+    };
   })();
 
   return {

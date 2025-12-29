@@ -20,16 +20,26 @@ const ALLOWED_MASCOT_CITIES = [
 // Helper to resolve mascot city from search result
 const resolveMascotCity = (item) => {
   const text = `${item.city || ''} ${item.state || ''} ${item.label || ''}`.toLowerCase();
-
-  const match = ALLOWED_MASCOT_CITIES.find(city =>
-    text.includes(city)
-  );
-
-  return match
-    ? match.replace(/\b\w/g, l => l.toUpperCase()) // Capitalize first letters
-    : 'Suburub'; // Default fallback
+  
+  // Special cases
+  if (text.includes('sehel')) return 'Sehel';
+  if (text.includes('suburub')) return 'Suburub';
+  
+  // Major US cities
+  const majorCities = [
+    'boston', 'chicago', 'las vegas', 'los angeles', 
+    'new york', 'philadelphia', 'san francisco'
+  ];
+  
+  const match = majorCities.find(city => text.includes(city));
+  
+  if (match) {
+    return match.replace(/\b\w/g, l => l.toUpperCase());
+  }
+  
+  // Default for all other cities
+  return 'new york';
 };
-
 export default function SearchModal({
   searchOpen,
   setSearchOpen,
@@ -65,8 +75,9 @@ export default function SearchModal({
       lon: item.lon,
     });
 
-    setCityName(item.fullLabel);
-
+    // Call setCityName with the city name (this will trigger handleCityChange in parent)
+    setCityName(item.city);
+    
     // Mascot city restricted
     const mascotCity = resolveMascotCity(item);
     setMascotCity(mascotCity);

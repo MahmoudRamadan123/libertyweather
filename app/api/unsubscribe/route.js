@@ -1,14 +1,19 @@
-
 // app/api/unsubscribe/route.js
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { Resend } from 'resend';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Initialize Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 // Confirmation email template for unsubscribe
 function getUnsubscribeConfirmationTemplate(email) {
+  const resubscribeUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/subscribe`;
+  
   return `
     <!DOCTYPE html>
     <html>
@@ -44,7 +49,7 @@ function getUnsubscribeConfirmationTemplate(email) {
           <p>If this was a mistake, or if you'd like to resubscribe, you can do so at any time by visiting our website.</p>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.NEXT_PUBLIC_BASE_URL}" class="button">Resubscribe to Alerts</a>
+            <a href="${resubscribeUrl}" class="button">Resubscribe to Alerts</a>
           </div>
           
           <p>Stay safe,<br>The Liberty Weather Team</p>
@@ -67,29 +72,25 @@ export async function GET(request) {
     const email = searchParams.get('email');
 
     if (!token || !email) {
-      return NextResponse.json(
-        { error: 'Missing token or email' },
-        { status: 400 }
-      );
+      // Redirect to error page if parameters are missing
+      return NextResponse.redirect(new URL('/unsubscribe/error?message=missing_params', request.url));
     }
 
     // Verify the subscriber exists and token matches
-    const { data: subscriber } = await supabase
+    const { data: subscriber, error: fetchError } = await supabase
       .from('subscribers')
       .select('*')
       .eq('email', email)
       .eq('unsubscribe_token', token)
       .single();
 
-    if (!subscriber) {
-      return NextResponse.json(
-        { error: 'Invalid unsubscribe link' },
-        { status: 400 }
-      );
+    if (fetchError || !subscriber) {
+      // Redirect to error page for invalid token
+      return NextResponse.redirect(new URL('/unsubscribe/error?message=invalid_token', request.url));
     }
 
     // Update subscription status
-    const { error } = await supabase
+    const { error: updateError } = await supabase
       .from('subscribers')
       .update({
         status: 'cancelled',
@@ -98,21 +99,29 @@ export async function GET(request) {
       })
       .eq('email', email);
 
-    if (error) throw error;
+    if (updateError) throw updateError;
 
-    // Send confirmation email
-    const confirmationHtml = getUnsubscribeConfirmationTemplate(email);
-    // Send email using your email service (Resend, SendGrid, etc.)
-    // await sendResendEmail(email, 'Unsubscribed from Weather Alerts', confirmationHtml);
+    // Send confirmation email using Resend
+    try {
+      const confirmationHtml = getUnsubscribeConfirmationTemplate(email);
+      await resend.emails.send({
+        from: 'Weather Alerts <alerts@libertyweather.com>',
+        to: email,
+        subject: 'Unsubscribed from Weather Alerts',
+        html: confirmationHtml,
+      });
+      console.log('Unsubscribe confirmation email sent to:', email);
+    } catch (emailError) {
+      console.warn('Failed to send unsubscribe confirmation email:', emailError);
+      // Continue even if email fails - unsubscribe is still processed
+    }
 
-    // Redirect to confirmation page or show success
-    return NextResponse.redirect(new URL('/unsubscribe-confirmation', request.url));
+    // Redirect to success confirmation page
+    return NextResponse.redirect(new URL('/unsubscribe/success', request.url));
 
   } catch (error) {
     console.error('Unsubscribe error:', error);
-    return NextResponse.json(
-      { error: 'Failed to process unsubscribe request' },
-      { status: 500 }
-    );
+    // Redirect to error page
+    return NextResponse.redirect(new URL('/unsubscribe/error?message=server_error', request.url));
   }
 }

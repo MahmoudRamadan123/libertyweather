@@ -1,80 +1,158 @@
-// hooks/useWeather.js
+'use client';
+
 import { useState, useEffect } from 'react';
+
+/* ======================================================
+   CONSTANTS
+====================================================== */
 
 const WEATHER_HEADERS = {
   'User-Agent': 'LibertyHail (hani@libertyhail.com)',
   Accept: 'application/geo+json',
 };
 
-// Convert city/state → lat/lon using Mapbox
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_KEY;
+
+/* ======================================================
+   IMPROVED IN-MEMORY AI CACHE
+====================================================== */
+
+// Create a singleton cache instance
+const createCache = () => {
+  const cache = new Map();
+  const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+
+  return {
+    get: (key) => {
+      const cached = cache.get(key);
+      if (!cached) return null;
+
+      // Check if cache is expired
+      if (Date.now() - cached.timestamp > CACHE_DURATION) {
+        cache.delete(key);
+        return null;
+      }
+      
+      return cached.data;
+    },
+    
+    set: (key, data) => {
+      cache.set(key, {
+        data,
+        timestamp: Date.now()
+      });
+    },
+    
+    // Optional: Clear expired entries periodically
+    cleanup: () => {
+      const now = Date.now();
+      for (const [key, value] of cache.entries()) {
+        if (now - value.timestamp > CACHE_DURATION) {
+          cache.delete(key);
+        }
+      }
+    }
+  };
+};
+
+const aiCache = createCache();
+
+/* ======================================================
+   MAPBOX GEOCODING
+====================================================== */
+
 const geocodeLocation = async (query) => {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+  
+  // Normalize query for consistent caching
+  const normalizedQuery = query.trim().toLowerCase();
+
   const res = await fetch(
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-      query
+      normalizedQuery
     )}.json?types=place,region&country=US&limit=1&access_token=${token}`
   );
+
   const data = await res.json();
-  if (!data.features?.length) {
-    return;
-  };
+  if (!data.features?.length) return null;
 
   const feature = data.features[0];
+
   return {
     lat: feature.center[1],
     lon: feature.center[0],
     label: feature.place_name,
+    // Add normalized label for consistent caching
+    normalizedLabel: normalizedQuery
   };
 };
 
-// Get forecast + latest observations from weather.gov
-const getWeatherGovForecast = async (lat, lon) => {
-  // 1️⃣ Get NWS point info
-  const pointsRes = await fetch(`https://api.weather.gov/points/${lat},${lon}`, {
-    headers: WEATHER_HEADERS,
-  });
-  if (!pointsRes.ok) throw new Error('Failed to get points info');
-  const pointsData = await pointsRes.json();
+/* ======================================================
+   WEATHER.GOV FORECAST + REAL OBSERVATION
+====================================================== */
 
+const getWeatherGovForecast = async (lat, lon) => {
+  const pointsRes = await fetch(
+    `https://api.weather.gov/points/${lat},${lon}`,
+    { headers: WEATHER_HEADERS }
+  );
+
+  if (!pointsRes.ok) throw new Error('Failed to load NWS points');
+
+  const pointsData = await pointsRes.json();
   const hourlyUrl = pointsData.properties.forecastHourly;
   const stationsUrl = pointsData.properties.observationStations;
 
-  if (!hourlyUrl) throw new Error('Hourly forecast unavailable');
+  const forecastRes = await fetch(hourlyUrl, {
+    headers: WEATHER_HEADERS,
+  });
 
-  // 2️⃣ Get hourly forecast
-  const forecastRes = await fetch(hourlyUrl, { headers: WEATHER_HEADERS });
-  if (!forecastRes.ok) throw new Error('Failed to fetch hourly forecast');
+  if (!forecastRes.ok) throw new Error('Failed hourly forecast');
+
   const forecastData = await forecastRes.json();
   const periods = forecastData.properties.periods;
 
-  // 3️⃣ Get latest observation for real "now" temperature
-  let realNowTemp = null; // in Celsius
-  try {
-    const stationsRes = await fetch(stationsUrl, { headers: WEATHER_HEADERS });
-    const stations = await stationsRes.json();
-    const firstStation = stations?.features?.[0]?.id;
+  let realNowTemp = null;
 
-    if (firstStation) {
-      const obsRes = await fetch(`${firstStation}/observations/latest`, { headers: WEATHER_HEADERS });
+  try {
+    const stationsRes = await fetch(stationsUrl, {
+      headers: WEATHER_HEADERS,
+    });
+
+    const stations = await stationsRes.json();
+    const stationId = stations?.features?.[0]?.id;
+
+    if (stationId) {
+      const obsRes = await fetch(
+        `${stationId}/observations/latest`,
+        { headers: WEATHER_HEADERS }
+      );
+
       if (obsRes.ok) {
         const obs = await obsRes.json();
-        const tempVal = obs?.properties?.temperature?.value; // °C
-        if (tempVal !== null && !isNaN(tempVal)) realNowTemp = Math.round(tempVal);
+        const val = obs?.properties?.temperature?.value;
+        if (val !== null && !isNaN(val)) {
+          realNowTemp = Math.round(val);
+        }
       }
     }
   } catch {
-    /* fallback silently if observation fails */
+    /* silent fallback */
   }
 
-  // 4️⃣ Find the forecast period that matches current device time
   const now = new Date();
-  const currentPeriod = periods.find((p) => {
-    const start = new Date(p.startTime);
-    const end = new Date(p.endTime);
-    return now >= start && now <= end;
-  }) || periods[0];
 
-  const tempC = realNowTemp !== null ? realNowTemp : Math.round(((currentPeriod.temperature - 32) * 5) / 9);
+  const currentPeriod =
+    periods.find((p) => {
+      const start = new Date(p.startTime);
+      const end = new Date(p.endTime);
+      return now >= start && now <= end;
+    }) || periods[0];
+
+  const tempC =
+    realNowTemp !== null
+      ? realNowTemp
+      : Math.round(((currentPeriod.temperature - 32) * 5) / 9);
 
   return {
     temperature: tempC,
@@ -84,8 +162,81 @@ const getWeatherGovForecast = async (lat, lon) => {
     windSpeed: currentPeriod.windSpeed,
     windDirection: currentPeriod.windDirection,
     icon: currentPeriod.icon,
+    // Add timestamp for caching
+    timestamp: now.toISOString(),
+    // Add rounded temperature for consistent cache key
+    roundedTemp: Math.round(tempC)
   };
 };
+
+/* ======================================================
+   GEMINI 2-SENTENCE WEATHER SUMMARY
+====================================================== */
+
+const generateGeminiSummary = async ({
+  city,
+  temperature,
+  shortForecast,
+  windSpeed,
+}) => {
+  const prompt = `
+You are a weather assistant.
+Write EXACTLY 2 short sentences.
+
+Sentence 1:
+- Describe current weather in ${city}
+- Say what to wear (hat, jacket, coat, sunglasses, etc.)
+
+Sentence 2:
+- Give a car or travel safety hint
+- Mention umbrella or road caution ONLY if relevant
+
+Weather:
+Temperature: ${temperature}°C
+Condition: ${shortForecast}
+Wind: ${windSpeed}
+
+Do not exceed 2 sentences.
+`;
+
+  console.log('Gemini prompt:', prompt);
+  
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 400,
+          },
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error(`Gemini API error: ${res.status}`);
+    }
+
+    const data = await res.json();
+    console.log('Gemini response data:', data);
+    
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    
+    // Clean up the response
+    return text.trim().replace(/^["']|["']$/g, '');
+  } catch (error) {
+    console.error('Error calling Gemini API:', error);
+    return `Current weather in ${city}: ${temperature}°C and ${shortForecast}. Wind is ${windSpeed}.`;
+  }
+};
+
+/* ======================================================
+   MAIN HOOK
+====================================================== */
 
 export const useWeather = ({ location, setLocation }) => {
   const [weatherData, setWeatherData] = useState(null);
@@ -94,6 +245,7 @@ export const useWeather = ({ location, setLocation }) => {
   const [mascotOutfit, setMascotOutfit] = useState('default');
   const [animationType, setAnimationType] = useState('sunny');
   const [latAndLon, setLatAndLon] = useState({ lat: null, lon: null });
+
   const updateMascotAndAnimation = (temp, forecast) => {
     if (temp >= 27) setMascotOutfit('summer');
     else if (temp >= 16) setMascotOutfit('spring');
@@ -102,38 +254,88 @@ export const useWeather = ({ location, setLocation }) => {
 
     const f = forecast.toLowerCase();
     if (f.includes('sun') || f.includes('clear')) setAnimationType('sunny');
-    else if (f.includes('cloud') || f.includes('overcast')) setAnimationType('cloudy');
-    else if (f.includes('rain') || f.includes('shower')) setAnimationType('rainy');
-    else if (f.includes('snow') || f.includes('sleet') || f.includes('hail')) setAnimationType('snowy');
-    else if (f.includes('thunder') || f.includes('storm')) setAnimationType('stormy');
+    else if (f.includes('cloud')) setAnimationType('cloudy');
+    else if (f.includes('rain')) setAnimationType('rainy');
+    else if (f.includes('snow') || f.includes('hail')) setAnimationType('snowy');
+    else if (f.includes('thunder')) setAnimationType('stormy');
     else setAnimationType('default');
   };
 
   const handleLocationSearch = async (query) => {
     setLoading(true);
+
     try {
       const loc = await geocodeLocation(query);
-      if (!loc) return;
+      if (!loc) {
+        console.error('Location not found:', query);
+        return;
+      }
+
       setLocation(loc.label);
 
       const forecast = await getWeatherGovForecast(loc.lat, loc.lon);
+
       setLatAndLon({ lat: loc.lat, lon: loc.lon });
       setWeatherData({ ...forecast, city: loc.label });
 
-      updateMascotAndAnimation(forecast.temperature, forecast.shortForecast);
-
-      setSummary(
-        `It's ${forecast.shortForecast.toLowerCase()} in ${loc.label} at ${forecast.temperature}°${forecast.temperatureUnit}. ${forecast.detailedForecast}`
+      updateMascotAndAnimation(
+        forecast.temperature,
+        forecast.shortForecast
       );
+
+      // Create a consistent cache key
+      const cacheKey = JSON.stringify({
+        city: loc.normalizedLabel || loc.label.toLowerCase(),
+        condition: forecast.shortForecast.toLowerCase(),
+        temp: forecast.roundedTemp,
+        wind: forecast.windSpeed
+      });
+
+      console.log('Cache key:', cacheKey);
+
+      // Try to get cached summary
+      let aiSummary = aiCache.get(cacheKey);
+      
+      if (!aiSummary) {
+        console.log('Cache miss, calling Gemini API...');
+        aiSummary = await generateGeminiSummary({
+          city: loc.label,
+          temperature: forecast.temperature,
+          shortForecast: forecast.shortForecast,
+          windSpeed: forecast.windSpeed,
+        });
+
+        // Cache the result
+        if (aiSummary) {
+          aiCache.set(cacheKey, aiSummary);
+          console.log('Cached new summary for key:', cacheKey);
+        }
+      } else {
+        console.log('Cache hit for key:', cacheKey);
+      }
+
+      setSummary(aiSummary || '');
     } catch (err) {
-      console.error(err);
+      console.error('Error in handleLocationSearch:', err);
+      setSummary('Unable to generate weather summary. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  // Optional: Clean up cache periodically
   useEffect(() => {
-    if (location) handleLocationSearch(location);
+    const interval = setInterval(() => {
+      aiCache.cleanup();
+    }, 5 * 60 * 1000); // Clean up every 5 minutes
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (location && location.trim()) {
+      handleLocationSearch(location);
+    }
   }, [location]);
 
   const getTemperatureColor = (temp) => {
