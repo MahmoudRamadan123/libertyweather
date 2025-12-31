@@ -184,7 +184,7 @@ You are a weather assistant.
 Write EXACTLY 2 short sentences.
 
 Sentence 1:
-- Describe current weather in ${city}
+- Describe current weather
 - Say what to wear (hat, jacket, coat, sunglasses, etc.)
 
 Sentence 2:
@@ -201,36 +201,55 @@ Do not exceed 2 sentences.
 
   console.log('Gemini prompt:', prompt);
   
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 400,
-          },
-        }),
+  const maxRetries = 3;
+  const baseDelay = 1000; // Start with 1 second
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.4,
+            },
+          }),
+        }
+      );
+
+      if (res.status === 429) {
+        // Calculate delay with exponential backoff
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.warn(`Rate limited. Retrying in ${delay}ms... (Attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
       }
-    );
 
-    if (!res.ok) {
-      throw new Error(`Gemini API error: ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`Gemini API error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      console.log('Gemini response data:', data);
+      
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      // Clean up the response
+      return text.trim().replace(/^["']|["']$/g, '');
+    } catch (error) {
+      console.error(`Error calling Gemini API (Attempt ${attempt + 1}):`, error);
+      
+      if (attempt === maxRetries - 1) {
+        // Final fallback after all retries fail
+        return `Current weather in ${city}: ${temperature}°C and ${shortForecast}. Wind is ${windSpeed}.`;
+      }
+      
+      const delay = baseDelay * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
-
-    const data = await res.json();
-    console.log('Gemini response data:', data);
-    
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    
-    // Clean up the response
-    return text.trim().replace(/^["']|["']$/g, '');
-  } catch (error) {
-    console.error('Error calling Gemini API:', error);
-    return `Current weather in ${city}: ${temperature}°C and ${shortForecast}. Wind is ${windSpeed}.`;
   }
 };
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useState, useMemo, useCallback } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, ChevronDown } from 'lucide-react'; // Added ChevronDown icon
 import { useWeather } from './hooks/useWeather';
 import { useHolidays } from './hooks/useHolidays';
 import useSkyTime from './hooks/useSkyTime';
@@ -290,6 +290,14 @@ export default function Page() {
     };
   }, []);
 
+  // Scroll to cards section function
+  const scrollToCards = useCallback(() => {
+    const cardsSection = document.querySelector('.cards-section');
+    if (cardsSection) {
+      cardsSection.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
 
 
   return (
@@ -315,6 +323,36 @@ export default function Page() {
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Scroll indicator animation */
+        .scroll-indicator {
+          animation: bounce 2s infinite;
+        }
+        
+        @keyframes bounce {
+          0%, 20%, 50%, 80%, 100% {
+            transform: translateY(4px);
+          }
+          40% {
+            transform: translateY(7px);
+          }
+          60% {
+            transform: translateY(4px);
+          }
+        }
+        
+        .pulse {
+          animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.5;
+          }
         }
       `}</style>
 
@@ -394,22 +432,34 @@ export default function Page() {
           </Suspense>
         </div>
 
-        {/* Scroll indicator - show when critical content is loaded */}
+        {/* Animated Scroll Indicator */}
         {criticalSectionsLoaded && (
-          <div className="flex flex-col items-center py-3 text-xs text-white/60 transition-opacity duration-300 fade-in" style={{ background: colorBg }}>
-            <span>SCROLL FOR MORE</span>
-            <span className="text-lg">⌄</span>
+          <div 
+            className="flex flex-col items-center py-7 transition-opacity duration-300 fade-in cursor-pointer group"
+            style={{ background: colorBg }}
+            onClick={scrollToCards}
+          >
+            <span className="text-xs text-white/60 group-hover:text-white/80 transition-colors duration-200 mb-1">
+              SCROLL FOR MORE
+            </span>
+            <div className="scroll-indicator">
+              <ChevronDown 
+                className="w-5 h-5 text-white/60 group-hover:text-white/80 transition-colors duration-200"
+              />
+            </div>
           </div>
         )}
       </section>
 
       {/* Cards section - loads independently */}
       <Suspense fallback={
-        <div className="h-64 flex items-center justify-center" style={{ background: colorBg }}>
+        <div className="h-64 flex items-center justify-center cards-section" style={{ background: colorBg }}>
           <div className="skeleton h-48 w-full max-w-6xl"></div>
         </div>
       }>
-        <Cards colorBg={colorBg} />
+        <div className="cards-section">
+          <Cards colorBg={colorBg} />
+        </div>
       </Suspense>
 
       {/* Footer */}

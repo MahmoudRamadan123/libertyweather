@@ -1,41 +1,41 @@
-export default function Cards({colorBg}) {
-  return (
-    <section className="px-4 pb-10 flex flex-col items-center justify-evenly gap-10">
+"use client";
 
-      {/* Section Title */}
-      <h2
-        className="
-          lg:text-5xl 
-          text-3xl
-          font-bold 
-          text-center
-          tracking-wide 
-          text-[#e5f4ff]
-          drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]
-        "
-      >
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
+import Link from "next/link";
+
+export default function Cards({ colorBg }) {
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchArticles() {
+const { data, error } = await supabase
+  .from('articles')
+  .select('id,title,slug,excerpt,cover_image,created_at')
+  .order('created_at', { ascending: false });
+
+
+      if (!error) setArticles(data || []);
+      setLoading(false);
+    }
+
+    fetchArticles();
+  }, []);
+
+  if (loading) return null;
+
+  return (
+    <section className="px-4 pb-10 flex flex-col items-center gap-10">
+      <h2 className="lg:text-5xl text-3xl font-bold text-center text-[#e5f4ff]">
         Helpful Reads for Dallas
       </h2>
 
-      {/* Responsive Square Grid */}
-      <div
-        className="
-          grid 
-          grid-cols-2
-          sm:grid-cols-2 
-          md:grid-cols-3 
-          lg:grid-cols-4 
-          gap-4
-        "
-      >
-        {[
-          { title: "How to Drive Safely on Black Ice" },
-          { title: "Protecting Your Car from Hail" },
-          { title: "Insulation Lowering Heating Costs this Week" },
-          { title: "Best Cocoa Winter Drinks in Dallas" },
-        ].map((item, index) => (
-          <div
-            key={index}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {articles.map((article) => (
+          <Link
+            key={article.id}
+            href={`/articles/${article.slug}`}
             className={`
               bg-[${colorBg}]/90
               border border-[#70c6dd]/30
@@ -43,37 +43,31 @@ export default function Cards({colorBg}) {
               p-3
               flex flex-col
               shadow-[0_10px_25px_rgba(0,0,0,0.45)]
-              transition-all duration-300
-              hover:border-[rgb(112,198,221)]
-              lg:h-[450px]
-              h-[250px]
+              hover:border-[#70c6dd]
+              transition
+              h-[250px] lg:h-[450px]
             `}
           >
-            {/* Image Wrapper = 60% of card height */}
-            <div
-              className="
-                w-full 
-                h-[60%]            /* ← exactly 60% card height */
-                rounded-xl
-                border border-[#70c6dd]/40
-                bg-gradient-to-b from-[#879fb8]/40 to-[#1e211a]/40
-                flex items-center justify-center
-              "
-            >
-              <div className="w-12 h-12 border border-[#70c6dd]/40 rounded-md opacity-60" />
+            <div className="w-full h-[60%] rounded-xl border border-[#70c6dd]/40 overflow-hidden">
+              {article.cover_image ? (
+                <img
+                  src={article.cover_image}
+                  alt={article.title}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-b from-[#879fb8]/40 to-[#1e211a]/40" />
+              )}
             </div>
 
-            {/* Title */}
-            <p className="lg:text-[25px] text-[15px] font-semibold text-[#e5f4ff] mt-3 leading-snug line-clamp-2">
-              {item.title}
+            <p className="lg:text-[22px] text-[14px] font-semibold text-[#e5f4ff] mt-3 line-clamp-2">
+              {article.title}
             </p>
 
-            {/* Lines */}
-            <div className="space-y-1 mt-auto">
-              <div className="h-[10px] w-full rounded bg-[#70c6dd]/40" />
-              <div className="h-[10px] w-4/5 rounded bg-[#70c6dd]/30" />
-            </div>
-          </div>
+            <p className="text-xs text-[#cde9f5] mt-1 line-clamp-2">
+              {article.excerpt}
+            </p>
+          </Link>
         ))}
       </div>
     </section>
