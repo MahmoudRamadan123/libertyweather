@@ -180,31 +180,32 @@ const generateGeminiSummary = async ({
   windSpeed,
 }) => {
   const prompt = `
-You are a weather assistant.
-Write EXACTLY 2 short sentences.
-
+This keeps your developer’s constraints but improves output quality and variety:
+You are a friendly, professional weather assistant.
+Write EXACTLY 2 short sentences in clear, natural language.
 Sentence 1:
-- Describe current weather
-- Say what to wear (hat, jacket, coat, sunglasses, etc.)
-
+- Briefly describe the current weather
+- Suggest what to wear based on temperature and conditions 
 Sentence 2:
-- Give a car or travel safety hint
-- Mention umbrella or road caution ONLY if relevant
-
-Weather:
+- Give one practical driving or travel safety tip
+- Mention rain, wind, umbrella, or road caution ONLY if conditions require it
+Weather data:
 Temperature: ${temperature}°C
 Condition: ${shortForecast}
 Wind: ${windSpeed}
-
-Do not exceed 2 sentences.
+Rules:
+- Do not exceed 2 sentences
+- Avoid repeating the same phrasing every day
+- Keep the tone helpful and calm
+Example Output
+“Today is sunny with mild temperatures, so light layers and sunglasses are ideal. Enjoy safe driving with clear roads and good visibility.”
+or
+“Cool and windy conditions today mean a jacket is recommended. Drive carefully as gusty winds may affect vehicle control.”
 `;
 
-  console.log('Gemini prompt:', prompt);
-  
   const maxRetries = 3;
   const baseDelay = 1000; // Start with 1 second
   
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -225,7 +226,7 @@ Do not exceed 2 sentences.
         const delay = baseDelay * Math.pow(2, attempt);
         console.warn(`Rate limited. Retrying in ${delay}ms... (Attempt ${attempt + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
+        
       }
 
       if (!res.ok) {
@@ -240,17 +241,18 @@ Do not exceed 2 sentences.
       // Clean up the response
       return text.trim().replace(/^["']|["']$/g, '');
     } catch (error) {
-      console.error(`Error calling Gemini API (Attempt ${attempt + 1}):`, error);
-      
-      if (attempt === maxRetries - 1) {
-        // Final fallback after all retries fail
-        return `Current weather in ${city}: ${temperature}°C and ${shortForecast}. Wind is ${windSpeed}.`;
-      }
-      
-      const delay = baseDelay * Math.pow(2, attempt);
-      await new Promise(resolve => setTimeout(resolve, delay));
+            const cacheKey = JSON.stringify({
+        condition: shortForecast.toLowerCase(),
+        temp: temperature,
+        wind: windSpeed
+      });
+
+      // Try to get cached summary
+      let aiSummary = aiCache.get(cacheKey);
+      console.log(aiSummary)
+      return aiSummary;
     }
-  }
+  
 };
 
 /* ======================================================
@@ -272,7 +274,9 @@ export const useWeather = ({ location, setLocation }) => {
     else setMascotOutfit('winter');
 
     const f = forecast.toLowerCase();
-    if (f.includes('sun') || f.includes('clear')) setAnimationType('sunny');
+    console.log(f)
+    if (f.includes('sun')) setAnimationType('sunny');
+    else if(f.includes('clear')) setAnimationType('clear');
     else if (f.includes('cloud')) setAnimationType('cloudy');
     else if (f.includes('rain')) setAnimationType('rainy');
     else if (f.includes('snow') || f.includes('hail')) setAnimationType('snowy');
@@ -304,7 +308,6 @@ export const useWeather = ({ location, setLocation }) => {
 
       // Create a consistent cache key
       const cacheKey = JSON.stringify({
-        city: loc.normalizedLabel || loc.label.toLowerCase(),
         condition: forecast.shortForecast.toLowerCase(),
         temp: forecast.roundedTemp,
         wind: forecast.windSpeed
@@ -318,7 +321,6 @@ export const useWeather = ({ location, setLocation }) => {
       if (!aiSummary) {
         console.log('Cache miss, calling Gemini API...');
         aiSummary = await generateGeminiSummary({
-          city: loc.label,
           temperature: forecast.temperature,
           shortForecast: forecast.shortForecast,
           windSpeed: forecast.windSpeed,

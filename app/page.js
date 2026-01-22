@@ -6,6 +6,16 @@ import { useWeather } from './hooks/useWeather';
 import { useHolidays } from './hooks/useHolidays';
 import useSkyTime from './hooks/useSkyTime';
 import { useUSSunTimes } from './hooks/useUSSunTimes';
+import {
+  Cloud,
+  Sun,
+  Umbrella,
+  Thermometer,
+  Snowflake,
+  Wind,
+  Zap,
+  Eye,
+} from "lucide-react";
 
 
 import dynamic from 'next/dynamic';
@@ -89,8 +99,8 @@ export default function Page() {
     weatherData, 
     latAndLon, 
     summary, 
-    animationType, 
     handleLocationSearch,
+    animationType,
     isLoading: weatherLoading 
   } = useWeather({ 
     location: debouncedCityName,
@@ -123,7 +133,7 @@ export default function Page() {
 
   // Memoize display values
   const memoizedDisplayValues = useMemo(() => ({
-    temperature: weatherData?.temperature || '—',
+    temperature: weatherData?.temperature || 0,
     condition: weatherData?.condition || animationType?.toUpperCase() || '—',
     summary: summary || (
       timeOfDay === 'night' 
@@ -197,22 +207,35 @@ export default function Page() {
   }, [holidaysLoading]);
 
   // Set background color based on animation type
-  useEffect(() => {
-    if (!animationType) return;
-    
-    const colorMap = {
-      'sunny': 'rgb(30 33 26)',
-      'clear': 'rgb(30 33 26)',
-      'snowy': 'rgb(35 42 52)',
-      'rainy': 'rgb(32 40 55)',
-      'stormy': 'rgb(22 28 38)',
-      'thunderstorm': 'rgb(22 28 38)',
-      'cloudy': 'rgb(45 50 60)',
-      'overcast': 'rgb(45 50 60)'
-    };
-    
-    setColorBg(colorMap[animationType] || 'rgb(30 33 26)');
-  }, [animationType]);
+useEffect(() => {
+  if (!animationType) return;
+
+  const colorMap = {
+    // 🔵 Clear / Cool (BEST for white text)
+    clear: 'rgb(18 45 90)',
+    rainy: 'rgb(16 40 70)',
+
+    // 🟡 Sunny / Heat (dark warm gold)
+    sunny: '#1E2A38',
+
+    // 🔥 Extreme Heat (orange / red)
+    heat: 'rgb(120 45 25)',
+
+    // ❄️ Snow (cool dark blue-gray)
+    snowy: 'rgb(40 60 80)',
+
+    // 🟣 Storms
+    stormy: 'rgb(35 30 60)',
+    thunderstorm: 'rgb(25 20 50)',
+
+    // ☁️ Clouds
+    cloudy: 'rgb(60 65 75)',
+    overcast: 'rgb(50 55 65)',
+  };
+
+  setColorBg(colorMap[animationType] || 'rgb(18 45 90)');
+}, [animationType]);
+
 
   // Fetch NWS Alerts (loads independently)
   useEffect(() => {
@@ -374,19 +397,149 @@ export default function Page() {
         />
 
         <div className="relative flex-1 flex items-center justify-center">
-          <div className="absolute top-18 w-full z-20 flex items-center justify-between px-4">
-            <h1
-              className="text-white text-[43px] lg:text-[52px] font-bold transition-opacity duration-300"
-              style={{
-                textShadow: '0 2px 4px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.45)',
-                opacity: loadedSections.weather ? 1 : 0.6
-              }}
-            >
-              {memoizedDisplayValues.temperature}°C | {memoizedDisplayValues.condition}
-            </h1>
+<div className="absolute top-20 w-full z-20 flex flex-col gap-[2px] px-4 sm:px-6">
 
-           
-          </div>
+  {/* LOCATION */}
+  <span className="text-white lg:text-[14px]  text-[10px] uppercase tracking-widest" style={{
+    textShadow:
+        "0 2px 4px rgba(0,0,0,0.6), 0 6px 16px rgba(0,0,0,0.45)",
+  }}>
+    {cityName} · Right now
+  </span>
+
+  {/* TEMPERATURE */}
+  <h1
+    className="text-white lg:text-[64px] text-[44px]  font-bold leading-[1.05]"
+    style={{
+      textShadow:
+        "0 2px 4px rgba(0,0,0,0.6), 0 6px 16px rgba(0,0,0,0.45)",
+      opacity: loadedSections.weather ? 1 : 0.6,
+    }}
+  >
+    {memoizedDisplayValues.temperature}°C |  {/* CONDITION */}
+  <span className="text-white/90  font-medium">
+    {memoizedDisplayValues.condition}
+  </span>
+  </h1>
+
+
+
+  {/* PREPAREDNESS CUE */}
+
+<span className="flex  items-center gap-1 text-white text-[13px] lg:text-[15px] mt-3" style={{
+  textShadow:
+        "0 2px 4px rgba(0,0,0,0.6), 0 6px 16px rgba(0,0,0,0.45)",
+}}>
+  {(() => {
+    const condition = memoizedDisplayValues.condition.toLowerCase();
+    const temp = memoizedDisplayValues.temperature;
+
+    // ⚡ Thunder / Storm
+    if (condition.includes("thunder")) return (
+      <>
+        <Zap className="w-4 h-4" /> Stay indoors if possible
+      </>
+    );
+    if (condition.includes("storm")) return (
+      <>
+        <AlertCircle className="w-4 h-4" /> Avoid travel, secure loose items
+      </>
+    );
+
+    // 🌧 Rain / Drizzle
+    if (condition.includes("rain") || condition.includes("drizzle")) return (
+      <>
+        <Umbrella className="w-4 h-4" /> Take an umbrella
+      </>
+    );
+
+    // ❄ Snow / Ice
+    if (condition.includes("snow")) return (
+      <>
+        <Snowflake className="w-4 h-4" /> Dress warm & watch for ice
+      </>
+    );
+    if (condition.includes("sleet") || condition.includes("ice")) return (
+      <>
+        <Snowflake className="w-4 h-4" /> Slippery roads – walk carefully
+      </>
+    );
+
+    // 🌫 Fog / Mist / Haze
+    if (condition.includes("fog") || condition.includes("mist") || condition.includes("haze")) return (
+      <>
+        <Eye className="w-4 h-4" /> Low visibility – drive carefully
+      </>
+    );
+
+    // 💨 Wind
+    if (condition.includes("wind") || condition.includes("breezy")) return (
+      <>
+        <Wind className="w-4 h-4" /> Windy – secure loose items
+      </>
+    );
+
+    // ☀ Clear / Sun
+    if (condition.includes("sun") || condition.includes("clear")) return (
+      <>
+        <Sun className="w-4 h-4" /> Pleasant conditions
+      </>
+    );
+
+    // ☁ Cloudy / Overcast
+    if (condition.includes("cloud") || condition.includes("overcast")) return (
+      <>
+        <Cloud className="w-4 h-4" /> Calm weather – no special prep
+      </>
+    );
+
+    // 🔥 Heat
+    if (temp >= 40) return (
+      <>
+        <Thermometer className="w-4 h-4" /> Extreme heat – avoid outdoor activity
+      </>
+    );
+    if (temp >= 35) return (
+      <>
+        <Thermometer className="w-4 h-4" /> Stay hydrated & avoid sun
+      </>
+    );
+    if (temp >= 30) return (
+      <>
+        <Thermometer className="w-4 h-4" /> Light clothing recommended
+      </>
+    );
+
+    // ❄ Cold
+    if (temp <= -5) return (
+      <>
+        <Thermometer className="w-4 h-4" /> Extreme cold – limit exposure
+      </>
+    );
+    if (temp <= 0) return (
+      <>
+        <Thermometer className="w-4 h-4" /> Freezing – dress in layers
+      </>
+    );
+    if (temp <= 10) return (
+      <>
+        <Thermometer className="w-4 h-4" /> Wear a jacket
+      </>
+    );
+
+    // ✅ Fallback
+    return (
+      <>
+        <Sun className="w-4 h-4" /> Normal conditions
+      </>
+    );
+  })()}
+</span>
+
+
+</div>
+
+
 
           <div className="z-10 w-full">
             <Mascot
@@ -408,13 +561,10 @@ export default function Page() {
           {/* Quote */}
           <div className="absolute bottom-0 z-20 px-4 w-full">
             <div
-              className="mx-auto max-w-[520px] px-4 py-3 shadow-md transition-opacity duration-300 fade-in"
-              style={{
-                background: timeOfDay === 'night' ? 'rgb(150,150,180)' : 'rgb(198,184,154)',
-                opacity: loadedSections.weather ? 1 : 0.7
-              }}
+              className={`mx-auto max-w-[520px] ${timeOfDay === 'night'?"bg-[#9696b4]/50":"bg-[#FFFFFF]/50"} px-4 py-3 shadow-md transition-opacity duration-300 fade-in`}
             >
-              <p className="text-center italic text-sm text-black">
+
+              <p className="text-center italic text-sm text-white">
                 "{memoizedDisplayValues.summary}"
               </p>
             </div>

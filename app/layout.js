@@ -1,3 +1,4 @@
+// app/layout.js
 import { Inter, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import { Analytics } from '@vercel/analytics/next';
@@ -14,8 +15,12 @@ const spaceGrotesk = Space_Grotesk({
   display: 'swap',
 });
 
-export const metadata = {
-  title: 'LibertyWeather - Simple, Personalized Weather Updates',
+// Base metadata for fallback
+const baseMetadata = {
+  title: {
+    default: 'LibertyWeather - Simple, Personalized Weather Updates',
+    template: '%s | LibertyWeather',
+  },
   description: 'Get straightforward weather summaries with personality. No confusing graphs, just clear advice on what to wear and how to prepare.',
   keywords: 'weather, simple weather, weather alerts, weather updates, clothing advice, LibertyWeather',
   authors: [{ name: 'LibertyWeather' }],
@@ -67,7 +72,66 @@ export const metadata = {
   category: 'weather',
 };
 
-export default function RootLayout({ children }) {
+export async function generateMetadata({ params }) {
+  const metadata = { ...baseMetadata };
+  const baseUrl = 'https://libertyweather.com';
+  
+  // If on a city page, enhance metadata
+  if (params.city) {
+    const cityName = getCityDisplayName(params.city);
+    metadata.title = `Today's Weather Forecast – ${cityName} | LibertyWeather`;
+    metadata.description = `Simple weather updates for ${cityName}. Get personalized advice on what to wear and how to prepare.`;
+    
+    metadata.openGraph = {
+      ...metadata.openGraph,
+      title: `Weather Forecast – ${cityName}`,
+      description: `Clear weather advice for ${cityName}. Know what to wear today.`,
+      url: `${baseUrl}/weather/${params.city}`,
+    };
+    
+    metadata.twitter = {
+      ...metadata.twitter,
+      title: `Weather Forecast – ${cityName} | LibertyWeather`,
+      description: `Clear weather advice for ${cityName}. Know what to wear today.`,
+    };
+  }
+  
+  metadata.metadataBase = new URL(baseUrl);
+  return metadata;
+}
+
+// Helper function to get city display name
+function getCityDisplayName(citySlug) {
+  const cityMap = {
+    'new-york': 'New York, NY',
+    'chicago': 'Chicago, IL',
+    'los-angeles': 'Los Angeles, CA',
+    'miami': 'Miami, FL',
+    'seattle': 'Seattle, WA',
+    'houston': 'Houston, TX',
+    'phoenix': 'Phoenix, AZ',
+    'philadelphia': 'Philadelphia, PA',
+    'san-antonio': 'San Antonio, TX',
+    'san-diego': 'San Diego, CA',
+    'dallas': 'Dallas, TX',
+    'san-jose': 'San Jose, CA',
+    'austin': 'Austin, TX',
+    'jacksonville': 'Jacksonville, FL',
+    'fort-worth': 'Fort Worth, TX',
+    'columbus': 'Columbus, OH',
+    'charlotte': 'Charlotte, NC',
+    'san-francisco': 'San Francisco, CA',
+    'indianapolis': 'Indianapolis, IN',
+    'denver': 'Denver, CO',
+  };
+  
+  return cityMap[citySlug] || `${citySlug.replace('-', ' ').toUpperCase()}`;
+}
+
+export default function RootLayout({ children, params }) {
+  const citySlug = params?.city;
+  const cityName = citySlug ? getCityDisplayName(citySlug) : null;
+  
   return (
     <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <head>
@@ -75,6 +139,8 @@ export default function RootLayout({ children }) {
         <meta name="geo.placename" content="United States" />
         <meta name="geo.position" content="39.8;-98.6" />
         <meta name="ICBM" content="39.8, -98.6" />
+        
+        {/* Website Schema */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -92,6 +158,31 @@ export default function RootLayout({ children }) {
             })
           }}
         />
+        
+        {/* Local Business Schema */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "LocalBusiness",
+              "name": "LibertyWeather",
+              "description": "Simple weather updates with personalized clothing advice",
+              "url": "https://libertyweather.com",
+              "telephone": "+1-800-555-1212",
+              "address": {
+                "@type": "PostalAddress",
+                "addressCountry": "US"
+              },
+              "areaServed": {
+                "@type": "Country",
+                "name": "United States"
+              },
+              "serviceType": "Weather Forecasting Service"
+            })
+          }}
+        />
+        
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -103,7 +194,7 @@ export default function RootLayout({ children }) {
           <Analytics />
         </div>
         
-        {/* Structured Data for Weather Service */}
+        {/* Weather Service Schema */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -126,6 +217,39 @@ export default function RootLayout({ children }) {
             })
           }}
         />
+        
+        {/* Add city-specific structured data if on city page */}
+        {cityName && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify({
+                "@context": "https://schema.org",
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                  {
+                    "@type": "ListItem",
+                    "position": 1,
+                    "name": "Home",
+                    "item": "https://libertyweather.com"
+                  },
+                  {
+                    "@type": "ListItem",
+                    "position": 2,
+                    "name": "Weather",
+                    "item": "https://libertyweather.com/weather"
+                  },
+                  {
+                    "@type": "ListItem",
+                    "position": 3,
+                    "name": cityName,
+                    "item": `https://libertyweather.com/weather/${citySlug}`
+                  }
+                ]
+              })
+            }}
+          />
+        )}
       </body>
     </html>
   );

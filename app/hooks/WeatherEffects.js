@@ -55,7 +55,7 @@ const WeatherEffect = ({ animationType, timeOfDay }) => {
      <div className="absolute inset-0 overflow-hidden">
           <img
             src="/mascots/all/clouds.png"
-            className="absolute h-full -z-1 top-0 w-[4000px] opacity-50 animate-clouds object-cover "
+            className="absolute h-full -z-1 top-0 w-[4000px]  animate-clouds object-cover "
             alt="Clouds"
                     style={{
           filter:

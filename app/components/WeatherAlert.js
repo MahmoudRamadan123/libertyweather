@@ -189,14 +189,7 @@ const handleSubscribe = async (e) => {
                 </div>
                 <div>
                   <h2 className="text-lg sm:text-xl font-bold text-white">Weather Alerts</h2>
-                  <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-300">
-                    <MapPin className="h-3 w-3" />
-                    <span>
-                      {lat && lon ? `${lat.toFixed(1)}, ${lon.toFixed(1)}` : 
-                       userLocation ? `${userLocation.lat.toFixed(1)}, ${userLocation.lon.toFixed(1)}` :
-                       'Your location'}
-                    </span>
-                  </div>
+  
                 </div>
               </div>
               <button
